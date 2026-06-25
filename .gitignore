@@ -1,12 +1,22 @@
+# Local dev
 node_modules/
 .env
 .env.local
+
+# Terraform — never commit state or secrets
 *.tfvars
 !*.tfvars.example
 .terraform/
 .terraform.lock.hcl
 terraform.tfstate
 terraform.tfstate.backup
+*.tfplan
+
+# Infra local config — contains GCP project ID and repo name
+# Each developer has their own; never commit
+infra/config.local.env
+
+# Build artifacts
 *.zip
 .DS_Store
 dist/

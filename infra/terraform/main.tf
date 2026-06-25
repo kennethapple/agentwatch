@@ -8,8 +8,11 @@ terraform {
     }
   }
 
+  # Backend bucket is set by bootstrap.sh before terraform init.
+  # If you are a new developer joining the project, ask the project owner
+  # for the bucket name and update the value below, or run bootstrap.sh.
   backend "gcs" {
-    bucket = "boreal-phoenix-405421-tfstate"
+    bucket = "boreal-phoenix-405421-agentwatch-tfstate"
     prefix = "agentwatch"
   }
 }
