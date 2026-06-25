@@ -1,0 +1,21 @@
+{
+  "name": "@agentwatch/agent",
+  "version": "0.1.0",
+  "description": "Cloud Run agent service — Claude streaming + MCP tools + SSE",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test src/**/*.test.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.26.0",
+    "@google-cloud/firestore": "^7.0.0",
+    "express": "^4.19.0",
+    "uuid": "^9.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
