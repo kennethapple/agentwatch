@@ -1,0 +1,23 @@
+{
+  "name": "@agentwatch/ingest",
+  "version": "0.1.0",
+  "description": "Cloud Functions webhook ingest handlers",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "node --test src/**/*.test.js",
+    "simulate": "node scripts/simulate.js"
+  },
+  "dependencies": {
+    "@google-cloud/firestore": "^7.0.0",
+    "@google-cloud/pubsub": "^4.0.0",
+    "@googleapis/gmail": "^1.0.0",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

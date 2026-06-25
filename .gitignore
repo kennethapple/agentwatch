@@ -1,0 +1,13 @@
+node_modules/
+.env
+.env.local
+*.tfvars
+!*.tfvars.example
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate
+terraform.tfstate.backup
+*.zip
+.DS_Store
+dist/
+.next/

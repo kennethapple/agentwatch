@@ -1,0 +1,10 @@
+{
+  "emailAddress": "user@example.com",
+  "subject": "Q3 budget approval needed",
+  "from": "Sarah Chen <sarah@acme.com>",
+  "to": "user@example.com",
+  "date": "Thu, 26 Jun 2025 09:14:00 +0000",
+  "threadId": "thread-abc123",
+  "messageCount": 1,
+  "historyId": "12345678"
+}

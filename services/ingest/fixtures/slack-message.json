@@ -1,0 +1,10 @@
+{
+  "teamId": "T01234567",
+  "channelId": "C01234567",
+  "channelType": "channel",
+  "userId": "U01234567",
+  "text": "Prod deploy is ready for review — all tests passing. @here can someone approve?",
+  "ts": "1719396840.000100",
+  "threadTs": null,
+  "files": []
+}
