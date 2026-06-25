@@ -134,6 +134,18 @@ else
   echo "  Created."
 fi
 
+# Wait for SA to propagate before binding roles — GCP IAM has eventual
+# consistency and bindings against a brand-new SA can fail immediately after creation.
+echo "▶ Waiting for service account to propagate..."
+for i in {1..10}; do
+  if gcloud iam service-accounts describe "$DEPLOY_SA_EMAIL" \
+      --project="$GCP_PROJECT_ID" &>/dev/null; then
+    break
+  fi
+  echo "  Not ready yet, retrying in 5s... ($i/10)"
+  sleep 5
+done
+
 # Scoped predefined roles only — no primitive roles (editor/owner)
 echo "▶ Granting IAM roles to deploy SA..."
 for ROLE in \
