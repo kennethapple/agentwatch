@@ -8,11 +8,10 @@ terraform {
     }
   }
 
-  # Uncomment and fill in after creating the GCS bucket:
-  # backend "gcs" {
-  #   bucket = "YOUR_PROJECT-tfstate"
-  #   prefix = "agentwatch"
-  # }
+  backend "gcs" {
+    bucket = "boreal-phoenix-405421-tfstate"
+    prefix = "agentwatch"
+  }
 }
 
 provider "google" {
@@ -20,7 +19,7 @@ provider "google" {
   region  = var.region
 }
 
-# Enable required GCP APIs
+# Enable all required GCP APIs
 resource "google_project_service" "apis" {
   for_each = toset([
     "cloudfunctions.googleapis.com",
@@ -31,7 +30,10 @@ resource "google_project_service" "apis" {
     "artifactregistry.googleapis.com",
     "cloudbuild.googleapis.com",
     "iam.googleapis.com",
+    "iamcredentials.googleapis.com",
+    "sts.googleapis.com",
     "gmail.googleapis.com",
+    "storage.googleapis.com",
   ])
 
   service            = each.value

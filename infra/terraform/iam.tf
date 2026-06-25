@@ -1,4 +1,4 @@
-# Ingest service account (Cloud Functions)
+# ── Ingest service account (Cloud Functions) ──────────────────────────────────
 resource "google_service_account" "ingest_sa" {
   account_id   = "agentwatch-ingest-sa"
   display_name = "AgentWatch Ingest"
@@ -17,7 +17,7 @@ resource "google_project_iam_member" "ingest_firestore_writer" {
   member  = "serviceAccount:${google_service_account.ingest_sa.email}"
 }
 
-# Agent service account (Cloud Run)
+# ── Agent service account (Cloud Run) ─────────────────────────────────────────
 resource "google_service_account" "agent_sa" {
   account_id   = "agentwatch-agent-sa"
   display_name = "AgentWatch Agent"
@@ -36,7 +36,13 @@ resource "google_project_iam_member" "agent_pubsub_subscriber" {
   member  = "serviceAccount:${google_service_account.agent_sa.email}"
 }
 
-# Frontend service account (Cloud Run)
+resource "google_project_iam_member" "agent_secret_accessor" {
+  project = var.project_id
+  role    = "roles/secretmanager.secretAccessor"
+  member  = "serviceAccount:${google_service_account.agent_sa.email}"
+}
+
+# ── Frontend service account (Cloud Run) ──────────────────────────────────────
 resource "google_service_account" "frontend_sa" {
   account_id   = "agentwatch-frontend-sa"
   display_name = "AgentWatch Frontend"
@@ -47,4 +53,13 @@ resource "google_project_iam_member" "frontend_firestore_reader" {
   project = var.project_id
   role    = "roles/datastore.viewer"
   member  = "serviceAccount:${google_service_account.frontend_sa.email}"
+}
+
+# ── Allow Pub/Sub to create tokens for push delivery ─────────────────────────
+# GCP requires the Pub/Sub service agent to be able to generate OIDC tokens
+# for authenticated push subscriptions.
+resource "google_project_iam_member" "pubsub_token_creator" {
+  project = var.project_id
+  role    = "roles/iam.serviceAccountTokenCreator"
+  member  = "serviceAccount:service-${data.google_project.project.number}@gcp-sa-pubsub.iam.gserviceaccount.com"
 }

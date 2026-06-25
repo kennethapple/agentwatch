@@ -6,15 +6,42 @@ on:
 
 env:
   GCP_REGION: us-central1
-  ARTIFACT_REGISTRY: us-central1-docker.pkg.dev
+  PROJECT_ID: boreal-phoenix-405421
+  REGISTRY: us-central1-docker.pkg.dev/boreal-phoenix-405421/agentwatch
 
 jobs:
+  # ── Detect what changed ─────────────────────────────────────────────────────
+  changes:
+    name: Detect changed services
+    runs-on: ubuntu-latest
+    outputs:
+      ingest:   ${{ steps.filter.outputs.ingest }}
+      agent:    ${{ steps.filter.outputs.agent }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            ingest:
+              - 'services/ingest/**'
+              - 'infra/terraform/functions.tf'
+            agent:
+              - 'services/agent/**'
+            frontend:
+              - 'services/frontend/**'
+
+  # ── Deploy ingest Cloud Functions ───────────────────────────────────────────
   deploy-ingest:
     name: Deploy ingest functions
     runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.ingest == 'true'
     permissions:
       contents: read
-      id-token: write   # for Workload Identity Federation
+      id-token: write
+
     steps:
       - uses: actions/checkout@v4
 
@@ -25,7 +52,7 @@ jobs:
 
       - uses: google-github-actions/setup-gcloud@v2
 
-      - name: Deploy Gmail function
+      - name: Deploy Gmail ingest function
         run: |
           gcloud functions deploy agentwatch-ingest-gmail \
             --gen2 \
@@ -34,9 +61,12 @@ jobs:
             --entry-point gmailHandler \
             --source services/ingest \
             --trigger-http \
-            --project ${{ secrets.GCP_PROJECT_ID }}
+            --service-account agentwatch-ingest-sa@$PROJECT_ID.iam.gserviceaccount.com \
+            --set-env-vars GCP_PROJECT_ID=$PROJECT_ID,PUBSUB_TOPIC=agentwatch-events \
+            --set-secrets GMAIL_WEBHOOK_TOKEN=gmail-webhook-token:latest \
+            --project $PROJECT_ID
 
-      - name: Deploy Slack function
+      - name: Deploy Slack ingest function
         run: |
           gcloud functions deploy agentwatch-ingest-slack \
             --gen2 \
@@ -45,15 +75,28 @@ jobs:
             --entry-point slackHandler \
             --source services/ingest \
             --trigger-http \
-            --project ${{ secrets.GCP_PROJECT_ID }}
+            --service-account agentwatch-ingest-sa@$PROJECT_ID.iam.gserviceaccount.com \
+            --set-env-vars GCP_PROJECT_ID=$PROJECT_ID,PUBSUB_TOPIC=agentwatch-events \
+            --set-secrets SLACK_SIGNING_SECRET=slack-signing-secret:latest \
+            --project $PROJECT_ID
 
+      - name: Print function URLs
+        run: |
+          echo "Gmail URL: $(gcloud functions describe agentwatch-ingest-gmail --region $GCP_REGION --project $PROJECT_ID --format='value(serviceConfig.uri)')"
+          echo "Slack URL: $(gcloud functions describe agentwatch-ingest-slack --region $GCP_REGION --project $PROJECT_ID --format='value(serviceConfig.uri)')"
+
+  # ── Build + deploy agent ────────────────────────────────────────────────────
   deploy-agent:
-    name: Build and deploy agent service
+    name: Build and deploy agent
     runs-on: ubuntu-latest
-    needs: deploy-ingest
+    needs: changes
+    if: needs.changes.outputs.agent == 'true'
     permissions:
       contents: read
       id-token: write
+    outputs:
+      image: ${{ steps.build.outputs.image }}
+
     steps:
       - uses: actions/checkout@v4
 
@@ -62,30 +105,51 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_DEPLOY_SA }}
 
-      - name: Configure Docker for Artifact Registry
-        run: gcloud auth configure-docker $ARTIFACT_REGISTRY
+      - name: Configure Docker
+        run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
 
       - name: Build and push agent image
+        id: build
         run: |
-          IMAGE=$ARTIFACT_REGISTRY/${{ secrets.GCP_PROJECT_ID }}/agentwatch/agent:${{ github.sha }}
+          IMAGE=$REGISTRY/agent:${{ github.sha }}
           docker build -t $IMAGE services/agent
           docker push $IMAGE
-          echo "AGENT_IMAGE=$IMAGE" >> $GITHUB_ENV
+          echo "image=$IMAGE" >> $GITHUB_OUTPUT
+          echo "Built: $IMAGE"
 
-      - name: Deploy to Cloud Run
+      - name: Deploy agent to Cloud Run
         run: |
           gcloud run deploy agentwatch-agent \
-            --image $AGENT_IMAGE \
+            --image ${{ steps.build.outputs.image }} \
             --region $GCP_REGION \
-            --project ${{ secrets.GCP_PROJECT_ID }}
+            --project $PROJECT_ID \
+            --service-account agentwatch-agent-sa@$PROJECT_ID.iam.gserviceaccount.com \
+            --set-env-vars GCP_PROJECT_ID=$PROJECT_ID,PUBSUB_TOPIC=agentwatch-events,NODE_ENV=production \
+            --set-secrets ANTHROPIC_API_KEY=anthropic-api-key:latest \
+            --min-instances 0 \
+            --max-instances 10 \
+            --memory 1Gi \
+            --cpu 2 \
+            --timeout 300 \
+            --allow-unauthenticated
 
+      - name: Print agent URL
+        run: |
+          echo "Agent URL: $(gcloud run services describe agentwatch-agent --region $GCP_REGION --project $PROJECT_ID --format='value(status.url)')"
+
+  # ── Build + deploy frontend ─────────────────────────────────────────────────
   deploy-frontend:
     name: Build and deploy frontend
     runs-on: ubuntu-latest
-    needs: deploy-agent
+    needs: [changes, deploy-agent]
+    # Run if frontend changed, or if agent changed (NEXT_PUBLIC_AGENT_URL may update)
+    if: |
+      always() &&
+      (needs.changes.outputs.frontend == 'true' || needs.deploy-agent.result == 'success')
     permissions:
       contents: read
       id-token: write
+
     steps:
       - uses: actions/checkout@v4
 
@@ -94,19 +158,43 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_DEPLOY_SA }}
 
-      - name: Configure Docker for Artifact Registry
-        run: gcloud auth configure-docker $ARTIFACT_REGISTRY
+      - name: Get agent URL
+        id: agent
+        run: |
+          URL=$(gcloud run services describe agentwatch-agent \
+            --region $GCP_REGION \
+            --project $PROJECT_ID \
+            --format='value(status.url)' 2>/dev/null || echo "")
+          echo "url=$URL" >> $GITHUB_OUTPUT
+          echo "Agent URL: $URL"
+
+      - name: Configure Docker
+        run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
 
       - name: Build and push frontend image
+        id: build
         run: |
-          IMAGE=$ARTIFACT_REGISTRY/${{ secrets.GCP_PROJECT_ID }}/agentwatch/frontend:${{ github.sha }}
-          docker build -t $IMAGE services/frontend
+          IMAGE=$REGISTRY/frontend:${{ github.sha }}
+          docker build \
+            --build-arg NEXT_PUBLIC_AGENT_URL=${{ steps.agent.outputs.url }} \
+            -t $IMAGE services/frontend
           docker push $IMAGE
-          echo "FRONTEND_IMAGE=$IMAGE" >> $GITHUB_ENV
+          echo "image=$IMAGE" >> $GITHUB_OUTPUT
 
-      - name: Deploy to Cloud Run
+      - name: Deploy frontend to Cloud Run
         run: |
           gcloud run deploy agentwatch-frontend \
-            --image $FRONTEND_IMAGE \
+            --image ${{ steps.build.outputs.image }} \
             --region $GCP_REGION \
-            --project ${{ secrets.GCP_PROJECT_ID }}
+            --project $PROJECT_ID \
+            --service-account agentwatch-frontend-sa@$PROJECT_ID.iam.gserviceaccount.com \
+            --set-env-vars "GCP_PROJECT_ID=$PROJECT_ID,NEXT_PUBLIC_AGENT_URL=${{ steps.agent.outputs.url }},NODE_ENV=production" \
+            --min-instances 0 \
+            --max-instances 5 \
+            --memory 512Mi \
+            --cpu 1 \
+            --allow-unauthenticated
+
+      - name: Print frontend URL
+        run: |
+          echo "🚀 Frontend live at: $(gcloud run services describe agentwatch-frontend --region $GCP_REGION --project $PROJECT_ID --format='value(status.url)')"

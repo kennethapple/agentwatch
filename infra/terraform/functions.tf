@@ -1,19 +1,17 @@
-locals {
-  ingest_source_dir = "${path.module}/../../services/ingest"
-}
-
 resource "google_storage_bucket" "functions_source" {
   name                        = "${var.project_id}-agentwatch-functions-src"
   location                    = var.region
   uniform_bucket_level_access = true
   force_destroy               = true
+
+  depends_on = [google_project_service.apis]
 }
 
 data "archive_file" "ingest_source" {
   type        = "zip"
-  source_dir  = local.ingest_source_dir
+  source_dir  = "${path.module}/../../services/ingest"
   output_path = "/tmp/ingest-source.zip"
-  excludes    = ["node_modules", ".env", "*.test.js"]
+  excludes    = ["node_modules", ".env", "*.test.js", "fixtures", "scripts"]
 }
 
 resource "google_storage_bucket_object" "ingest_source" {
@@ -22,7 +20,7 @@ resource "google_storage_bucket_object" "ingest_source" {
   source = data.archive_file.ingest_source.output_path
 }
 
-# Gmail ingest function
+# ── Gmail ingest function ─────────────────────────────────────────────────────
 resource "google_cloudfunctions2_function" "ingest_gmail" {
   name     = "agentwatch-ingest-gmail"
   location = var.region
@@ -57,18 +55,22 @@ resource "google_cloudfunctions2_function" "ingest_gmail" {
     }
   }
 
-  depends_on = [google_project_service.apis]
+  depends_on = [
+    google_project_service.apis,
+    google_storage_bucket_object.ingest_source,
+  ]
 }
 
-resource "google_cloud_run_service_iam_member" "ingest_gmail_public" {
-  project  = var.project_id
-  location = var.region
-  service  = google_cloudfunctions2_function.ingest_gmail.name
-  role     = "roles/run.invoker"
-  member   = "allUsers"
+# Cloud Functions v2 uses cloudfunctions2_function_iam_member, not cloud_run_service_iam_member
+resource "google_cloudfunctions2_function_iam_member" "ingest_gmail_public" {
+  project        = var.project_id
+  location       = var.region
+  cloud_function = google_cloudfunctions2_function.ingest_gmail.name
+  role           = "roles/cloudfunctions.invoker"
+  member         = "allUsers"
 }
 
-# Slack ingest function
+# ── Slack ingest function ─────────────────────────────────────────────────────
 resource "google_cloudfunctions2_function" "ingest_slack" {
   name     = "agentwatch-ingest-slack"
   location = var.region
@@ -103,13 +105,16 @@ resource "google_cloudfunctions2_function" "ingest_slack" {
     }
   }
 
-  depends_on = [google_project_service.apis]
+  depends_on = [
+    google_project_service.apis,
+    google_storage_bucket_object.ingest_source,
+  ]
 }
 
-resource "google_cloud_run_service_iam_member" "ingest_slack_public" {
-  project  = var.project_id
-  location = var.region
-  service  = google_cloudfunctions2_function.ingest_slack.name
-  role     = "roles/run.invoker"
-  member   = "allUsers"
+resource "google_cloudfunctions2_function_iam_member" "ingest_slack_public" {
+  project        = var.project_id
+  location       = var.region
+  cloud_function = google_cloudfunctions2_function.ingest_slack.name
+  role           = "roles/cloudfunctions.invoker"
+  member         = "allUsers"
 }

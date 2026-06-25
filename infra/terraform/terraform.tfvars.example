@@ -1,5 +1,12 @@
-project_id           = "your-gcp-project-id"
-region               = "us-central1"
+# Copy this to terraform.tfvars and fill in the sensitive values.
+# project_id, region, and github_repo have defaults in variables.tf
+# but can be overridden here.
+
+project_id  = "boreal-phoenix-405421"
+region      = "us-central1"
+github_repo = "kennethapple/agentwatch"
+
+# Sensitive — never commit terraform.tfvars
 anthropic_api_key    = "sk-ant-..."
 slack_signing_secret = "your-slack-signing-secret"
-gmail_webhook_token  = "your-gmail-push-token"
+gmail_webhook_token  = "your-random-token-32-hex-chars"

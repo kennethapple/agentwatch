@@ -1,0 +1,95 @@
+name: Terraform
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'infra/terraform/**'
+      - 'services/ingest/**'   # ingest source is zipped by terraform
+  push:
+    branches: [main]
+    paths:
+      - 'infra/terraform/**'
+      - 'services/ingest/**'
+
+env:
+  TF_VERSION: '1.7'
+  GCP_REGION: us-central1
+  PROJECT_ID: boreal-phoenix-405421
+
+jobs:
+  terraform:
+    name: ${{ github.event_name == 'pull_request' && 'Plan' || 'Apply' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write   # to post plan as PR comment
+
+    defaults:
+      run:
+        working-directory: infra/terraform
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEPLOY_SA }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform init
+        run: terraform init
+
+      - name: Terraform fmt check
+        run: terraform fmt -check -recursive
+
+      - name: Terraform validate
+        run: terraform validate
+
+      # On PRs — plan and post as a comment
+      - name: Terraform plan
+        if: github.event_name == 'pull_request'
+        id: plan
+        run: |
+          terraform plan -no-color \
+            -var="anthropic_api_key=${{ secrets.ANTHROPIC_API_KEY }}" \
+            -var="slack_signing_secret=${{ secrets.SLACK_SIGNING_SECRET }}" \
+            -var="gmail_webhook_token=${{ secrets.GMAIL_WEBHOOK_TOKEN }}" \
+            2>&1 | tee /tmp/plan.txt
+          echo "exitcode=${PIPESTATUS[0]}" >> $GITHUB_OUTPUT
+        continue-on-error: true
+
+      - name: Post plan to PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('/tmp/plan.txt', 'utf8');
+            const truncated = plan.length > 65000
+              ? plan.slice(0, 65000) + '\n\n... (truncated)'
+              : plan;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `### Terraform Plan\n\`\`\`\n${truncated}\n\`\`\``
+            });
+
+      - name: Fail if plan errored
+        if: github.event_name == 'pull_request' && steps.plan.outputs.exitcode != '0'
+        run: exit 1
+
+      # On merge to main — apply
+      - name: Terraform apply
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          terraform apply -auto-approve \
+            -var="anthropic_api_key=${{ secrets.ANTHROPIC_API_KEY }}" \
+            -var="slack_signing_secret=${{ secrets.SLACK_SIGNING_SECRET }}" \
+            -var="gmail_webhook_token=${{ secrets.GMAIL_WEBHOOK_TOKEN }}"

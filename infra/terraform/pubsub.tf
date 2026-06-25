@@ -1,4 +1,4 @@
-# Dead-letter topic first (no dependencies)
+# Dead-letter topic
 resource "google_pubsub_topic" "events_dlq" {
   name    = "agentwatch-events-dlq"
   project = var.project_id
@@ -15,16 +15,29 @@ resource "google_pubsub_topic" "events" {
 }
 
 # Push subscription → agent Cloud Run
+# We use a local to build the push endpoint URL rather than referencing
+# the Cloud Run service directly, which would create a circular dependency
+# (Cloud Run needs Pub/Sub topic; Pub/Sub sub needs Cloud Run URL).
+# On first apply the subscription is created with the placeholder image URL;
+# subsequent applies update it once the real URL is known.
+locals {
+  agent_run_url = "${google_cloud_run_v2_service.agent.uri}/run"
+}
+
 resource "google_pubsub_subscription" "agent_sub" {
   name    = "agentwatch-agent-sub"
   topic   = google_pubsub_topic.events.name
   project = var.project_id
 
+  # Extend ack deadline to give the agent time to start processing
+  ack_deadline_seconds = 60
+
   push_config {
-    push_endpoint = "${google_cloud_run_v2_service.agent.uri}/run"
+    push_endpoint = local.agent_run_url
 
     oidc_token {
       service_account_email = google_service_account.agent_sa.email
+      audience              = local.agent_run_url
     }
   }
 
@@ -38,7 +51,11 @@ resource "google_pubsub_subscription" "agent_sub" {
     max_delivery_attempts = 5
   }
 
-  depends_on = [google_cloud_run_v2_service.agent]
+  # Pub/Sub SA needs token creator role before this can be created
+  depends_on = [
+    google_project_iam_member.pubsub_token_creator,
+    google_cloud_run_v2_service.agent,
+  ]
 }
 
 # Allow Pub/Sub to invoke the agent Cloud Run service

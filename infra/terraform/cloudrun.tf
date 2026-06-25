@@ -7,11 +7,14 @@ resource "google_artifact_registry_repository" "agentwatch" {
   depends_on = [google_project_service.apis]
 }
 
-# Agent service
+# ── Agent service ─────────────────────────────────────────────────────────────
 resource "google_cloud_run_v2_service" "agent" {
   name     = "agentwatch-agent"
   location = var.region
   project  = var.project_id
+
+  # Allow unauthenticated — Pub/Sub push uses OIDC token separately
+  ingress = "INGRESS_TRAFFIC_ALL"
 
   template {
     service_account = google_service_account.agent_sa.email
@@ -20,6 +23,9 @@ resource "google_cloud_run_v2_service" "agent" {
       min_instance_count = 0
       max_instance_count = 10
     }
+
+    # Increase timeout for long agent runs (max 3600s on Cloud Run)
+    timeout = "300s"
 
     containers {
       image = var.agent_image
@@ -31,6 +37,10 @@ resource "google_cloud_run_v2_service" "agent" {
       env {
         name  = "PUBSUB_TOPIC"
         value = google_pubsub_topic.events.name
+      }
+      env {
+        name  = "NODE_ENV"
+        value = "production"
       }
       env {
         name = "ANTHROPIC_API_KEY"
@@ -48,16 +58,24 @@ resource "google_cloud_run_v2_service" "agent" {
           memory = "1Gi"
         }
       }
+
+      liveness_probe {
+        http_get {
+          path = "/health"
+        }
+        initial_delay_seconds = 5
+        period_seconds        = 30
+      }
     }
   }
 
   depends_on = [
     google_project_service.apis,
     google_secret_manager_secret_version.anthropic_api_key,
+    google_artifact_registry_repository.agentwatch,
   ]
 }
 
-# Allow unauthenticated invocations of agent (Pub/Sub push uses OIDC token above)
 resource "google_cloud_run_v2_service_iam_member" "agent_public" {
   project  = var.project_id
   location = var.region
@@ -66,11 +84,13 @@ resource "google_cloud_run_v2_service_iam_member" "agent_public" {
   member   = "allUsers"
 }
 
-# Frontend service
+# ── Frontend service ──────────────────────────────────────────────────────────
 resource "google_cloud_run_v2_service" "frontend" {
   name     = "agentwatch-frontend"
   location = var.region
   project  = var.project_id
+
+  ingress = "INGRESS_TRAFFIC_ALL"
 
   template {
     service_account = google_service_account.frontend_sa.email
@@ -91,10 +111,25 @@ resource "google_cloud_run_v2_service" "frontend" {
         name  = "NEXT_PUBLIC_AGENT_URL"
         value = google_cloud_run_v2_service.agent.uri
       }
+      env {
+        name  = "NODE_ENV"
+        value = "production"
+      }
+
+      resources {
+        limits = {
+          cpu    = "1"
+          memory = "512Mi"
+        }
+      }
     }
   }
 
-  depends_on = [google_project_service.apis]
+  depends_on = [
+    google_project_service.apis,
+    google_artifact_registry_repository.agentwatch,
+    google_cloud_run_v2_service.agent,
+  ]
 }
 
 resource "google_cloud_run_v2_service_iam_member" "frontend_public" {
