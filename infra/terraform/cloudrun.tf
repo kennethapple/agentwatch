@@ -72,6 +72,8 @@ resource "google_cloud_run_v2_service" "agent" {
   depends_on = [
     google_project_service.apis,
     google_secret_manager_secret_version.anthropic_api_key,
+    # SA must have secret access before Cloud Run can mount it
+    google_secret_manager_secret_iam_member.agent_anthropic,
     google_artifact_registry_repository.agentwatch,
   ]
 }
