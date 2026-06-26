@@ -11,7 +11,7 @@ data "archive_file" "ingest_source" {
   type        = "zip"
   source_dir  = "${path.module}/../../services/ingest"
   output_path = "/tmp/ingest-source.zip"
-  excludes    = ["node_modules", ".env", "*.test.js", "fixtures", "scripts"]
+  excludes    = [".env", "*.test.js", "fixtures", "scripts", "node_modules"]
 }
 
 resource "google_storage_bucket_object" "ingest_source" {
@@ -29,6 +29,8 @@ resource "google_cloudfunctions2_function" "ingest_gmail" {
   build_config {
     runtime     = "nodejs20"
     entry_point = "gmailHandler"
+    # Cloud Functions v2 runs npm install during build — node_modules
+    # must NOT be in the zip. The build step handles dependencies.
     source {
       storage_source {
         bucket = google_storage_bucket.functions_source.name
@@ -38,9 +40,12 @@ resource "google_cloudfunctions2_function" "ingest_gmail" {
   }
 
   service_config {
-    available_memory      = "256M"
-    timeout_seconds       = 30
-    service_account_email = google_service_account.ingest_sa.email
+    available_memory                 = "256M"
+    timeout_seconds                  = 30
+    max_instance_count               = 10
+    min_instance_count               = 0
+    max_instance_request_concurrency = 1
+    service_account_email            = google_service_account.ingest_sa.email
 
     environment_variables = {
       GCP_PROJECT_ID = var.project_id
@@ -61,7 +66,6 @@ resource "google_cloudfunctions2_function" "ingest_gmail" {
   ]
 }
 
-# Cloud Functions v2 uses cloudfunctions2_function_iam_member, not cloud_run_service_iam_member
 resource "google_cloudfunctions2_function_iam_member" "ingest_gmail_public" {
   project        = var.project_id
   location       = var.region
@@ -88,9 +92,12 @@ resource "google_cloudfunctions2_function" "ingest_slack" {
   }
 
   service_config {
-    available_memory      = "256M"
-    timeout_seconds       = 30
-    service_account_email = google_service_account.ingest_sa.email
+    available_memory                 = "256M"
+    timeout_seconds                  = 30
+    max_instance_count               = 10
+    min_instance_count               = 0
+    max_instance_request_concurrency = 1
+    service_account_email            = google_service_account.ingest_sa.email
 
     environment_variables = {
       GCP_PROJECT_ID = var.project_id
