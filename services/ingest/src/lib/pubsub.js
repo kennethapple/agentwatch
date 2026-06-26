@@ -1,10 +1,16 @@
-const { PubSub } = require('@google-cloud/pubsub')
+let client = null
 
-const client = new PubSub({ projectId: process.env.GCP_PROJECT_ID })
-const topicName = process.env.PUBSUB_TOPIC ?? 'agentwatch-events'
+function getClient() {
+  if (!client) {
+    const { PubSub } = require('@google-cloud/pubsub')
+    client = new PubSub({ projectId: process.env.GCP_PROJECT_ID })
+  }
+  return client
+}
 
 async function publish(event) {
-  const topic = client.topic(topicName)
+  const topicName = process.env.PUBSUB_TOPIC ?? 'agentwatch-events'
+  const topic = getClient().topic(topicName)
   const data = Buffer.from(JSON.stringify(event))
   const messageId = await topic.publishMessage({
     data,

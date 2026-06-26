@@ -1,10 +1,16 @@
-const { Firestore } = require('@google-cloud/firestore')
+let db = null
 
-const db = new Firestore({ projectId: process.env.GCP_PROJECT_ID })
+function getDb() {
+  if (!db) {
+    const { Firestore } = require('@google-cloud/firestore')
+    db = new Firestore({ projectId: process.env.GCP_PROJECT_ID })
+  }
+  return db
+}
 
 async function logEvent(event) {
   try {
-    await db.collection('events').doc(event.id).set(event)
+    await getDb().collection('events').doc(event.id).set(event)
   } catch (err) {
     console.error(`Failed to log event ${event.id} to Firestore:`, err.message)
   }
