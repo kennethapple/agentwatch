@@ -50,69 +50,20 @@ jobs:
       - name: Terraform validate
         run: terraform validate
 
-      # Remove stale state lock left by a previously failed run.
-      # Deleting the lock file from GCS is safe — we know it's stale because
-      # no other run is currently executing (GitHub Actions serializes on main).
+      # Clear any stale state lock before applying.
+      # Locks are left behind when a run is cancelled or times out mid-apply.
+      # Safe to remove here because GitHub Actions serializes pushes to main,
+      # so no concurrent apply can legitimately hold the lock at this point.
       - name: Clear stale state lock
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
-          # List and remove any lock files in the state bucket
           LOCKS=$(gsutil ls "gs://boreal-phoenix-405421-agentwatch-tfstate/agentwatch/*.tflock" 2>/dev/null || true)
           if [ -n "$LOCKS" ]; then
-            echo "Found locks: $LOCKS"
+            echo "⚠ Stale lock found — removing: $LOCKS"
             echo "$LOCKS" | xargs gsutil rm
-            echo "Locks removed"
           else
-            echo "No locks found"
+            echo "No stale lock present"
           fi
-
-      # Import bootstrap-created resources if not already in state.
-      # `terraform import` is idempotent when the resource is already managed —
-      # it exits 0 if in state, so we suppress errors with || true.
-      - name: Import bootstrap resources into state
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        env:
-          TF_VAR_anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          TF_VAR_slack_signing_secret: ${{ secrets.SLACK_SIGNING_SECRET }}
-          TF_VAR_gmail_webhook_token: ${{ secrets.GMAIL_WEBHOOK_TOKEN }}
-        run: |
-          # WIF + deploy SA created by bootstrap.sh
-          terraform import -lock=false \
-            google_iam_workload_identity_pool.github \
-            "projects/boreal-phoenix-405421/locations/global/workloadIdentityPools/agentwatch-gh-pool" \
-            || true
-
-          terraform import -lock=false \
-            google_iam_workload_identity_pool_provider.github \
-            "projects/boreal-phoenix-405421/locations/global/workloadIdentityPools/agentwatch-gh-pool/providers/agentwatch-gh-provider" \
-            || true
-
-          terraform import -lock=false \
-            google_service_account.deploy_sa \
-            "projects/boreal-phoenix-405421/serviceAccounts/agentwatch-deploy-sa@boreal-phoenix-405421.iam.gserviceaccount.com" \
-            || true
-
-          # Firestore indexes created by previous partial applies
-          terraform import -lock=false \
-            google_firestore_index.runs_by_event \
-            "projects/boreal-phoenix-405421/databases/(default)/collectionGroups/runs/indexes/CICAgOjXh4EK" \
-            || true
-
-          terraform import -lock=false \
-            google_firestore_index.events_by_source \
-            "projects/boreal-phoenix-405421/databases/(default)/collectionGroups/events/indexes/CICAgJiUpoMJ" \
-            || true
-
-          # Cloud Functions created by previous partial applies
-          terraform import -lock=false \
-            google_cloudfunctions2_function.ingest_gmail \
-            "projects/boreal-phoenix-405421/locations/us-central1/functions/agentwatch-ingest-gmail" \
-            || true
-
-          terraform import -lock=false \
-            google_cloudfunctions2_function.ingest_slack \
-            "projects/boreal-phoenix-405421/locations/us-central1/functions/agentwatch-ingest-slack" \
-            || true
 
       - name: Terraform plan
         if: github.event_name == 'pull_request'
@@ -150,7 +101,7 @@ jobs:
       - name: Terraform apply
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
-          terraform apply -auto-approve -lock=false \
+          terraform apply -auto-approve \
             -var="anthropic_api_key=${{ secrets.ANTHROPIC_API_KEY }}" \
             -var="slack_signing_secret=${{ secrets.SLACK_SIGNING_SECRET }}" \
             -var="gmail_webhook_token=${{ secrets.GMAIL_WEBHOOK_TOKEN }}"
