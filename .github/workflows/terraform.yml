@@ -91,11 +91,6 @@ jobs:
             "projects/boreal-phoenix-405421/serviceAccounts/agentwatch-deploy-sa@boreal-phoenix-405421.iam.gserviceaccount.com" \
             || true
 
-          terraform import -lock=false \
-            google_firestore_database.default \
-            "(default)" \
-            || true
-
       - name: Terraform plan
         if: github.event_name == 'pull_request'
         id: plan
