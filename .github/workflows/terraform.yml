@@ -56,9 +56,15 @@ jobs:
       - name: Clear stale state lock
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
-          gsutil rm gs://boreal-phoenix-405421-agentwatch-tfstate/agentwatch/default.tflock 2>/dev/null \
-            && echo "Stale lock removed" \
-            || echo "No lock present"
+          # List and remove any lock files in the state bucket
+          LOCKS=$(gsutil ls "gs://boreal-phoenix-405421-agentwatch-tfstate/agentwatch/*.tflock" 2>/dev/null || true)
+          if [ -n "$LOCKS" ]; then
+            echo "Found locks: $LOCKS"
+            echo "$LOCKS" | xargs gsutil rm
+            echo "Locks removed"
+          else
+            echo "No locks found"
+          fi
 
       # Import bootstrap-created resources if not already in state.
       # `terraform import` is idempotent when the resource is already managed —
@@ -126,7 +132,7 @@ jobs:
       - name: Terraform apply
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
-          terraform apply -auto-approve \
+          terraform apply -auto-approve -lock=false \
             -var="anthropic_api_key=${{ secrets.ANTHROPIC_API_KEY }}" \
             -var="slack_signing_secret=${{ secrets.SLACK_SIGNING_SECRET }}" \
             -var="gmail_webhook_token=${{ secrets.GMAIL_WEBHOOK_TOKEN }}"
