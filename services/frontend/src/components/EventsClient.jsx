@@ -5,12 +5,12 @@ import { useState, useEffect, useRef } from 'react'
 const AGENT_URL = process.env.NEXT_PUBLIC_AGENT_URL ?? 'http://localhost:8080'
 
 const STEP_META = {
-  classify:    { label: 'Classify', icon: '◈', iconClass: 'step-icon-classify' },
-  reasoning:   { label: 'Reasoning', icon: '◉', iconClass: 'step-icon-reasoning' },
-  tool_call:   { label: 'Tool call', icon: '⬡', iconClass: 'step-icon-tool' },
-  tool_result: { label: 'Tool result', icon: '✓', iconClass: 'step-icon-result' },
-  output:      { label: 'Output', icon: '★', iconClass: 'step-icon-output' },
-  error:       { label: 'Error', icon: '✕', iconClass: 'step-icon-reasoning' },
+  classify:    { label: 'Classify',     icon: '◈', iconClass: 'step-icon-classify' },
+  reasoning:   { label: 'Reasoning',    icon: '◉', iconClass: 'step-icon-reasoning' },
+  tool_call:   { label: 'Tool call',    icon: '⬡', iconClass: 'step-icon-tool' },
+  tool_result: { label: 'Tool result',  icon: '✓', iconClass: 'step-icon-result' },
+  output:      { label: 'Output',       icon: '★', iconClass: 'step-icon-output' },
+  error:       { label: 'Error',        icon: '✕', iconClass: 'step-icon-reasoning' },
 }
 
 function timeSince(iso) {
@@ -78,6 +78,9 @@ export default function EventsClient({ initialRuns }) {
   const esRef = useRef(null)
   const traceEndRef = useRef(null)
 
+  // Derive stable ID outside the effect so it can be a clean dependency
+  const selectedId = selectedRun?.runId ?? selectedRun?.id
+
   // Auto-scroll trace to bottom
   useEffect(() => {
     traceEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -85,27 +88,25 @@ export default function EventsClient({ initialRuns }) {
 
   // Subscribe to SSE when a run is selected
   useEffect(() => {
-    if (!selectedRun) return
+    if (!selectedId) return
 
     // Close any existing stream
     esRef.current?.close()
     setSteps([])
     setStreaming(false)
 
-    const url = `${AGENT_URL}/stream/${selectedRun.runId ?? selectedRun.id}`
+    const url = `${AGENT_URL}/stream/${selectedId}`
     const es = new EventSource(url)
     esRef.current = es
 
-    if (selectedRun.status === 'running') setStreaming(true)
+    if (selectedRun?.status === 'running') setStreaming(true)
 
     es.onmessage = (e) => {
       const step = JSON.parse(e.data)
       if (step.type === 'done') {
         setStreaming(false)
         setRuns(prev => prev.map(r =>
-          (r.runId ?? r.id) === selectedRun.runId ?? selectedRun.id
-            ? { ...r, status: 'done' }
-            : r
+          (r.runId ?? r.id) === selectedId ? { ...r, status: 'done' } : r
         ))
         es.close()
         return
@@ -119,10 +120,9 @@ export default function EventsClient({ initialRuns }) {
     }
 
     return () => es.close()
-  }, [selectedRun?.runId ?? selectedRun?.id])
+  }, [selectedId, selectedRun?.status])
 
   const runningRuns = runs.filter(r => r.status === 'running')
-  const selectedId = selectedRun?.runId ?? selectedRun?.id
 
   return (
     <>
@@ -173,9 +173,7 @@ export default function EventsClient({ initialRuns }) {
           ) : (
             <>
               <div className="trace-header">
-                <div className="trace-title">
-                  {selectedRun.type ?? 'Agent run'}
-                </div>
+                <div className="trace-title">{selectedRun.type ?? 'Agent run'}</div>
                 <span className={`badge badge-${selectedRun.status}`}>
                   {streaming ? 'Running…' : selectedRun.status}
                 </span>
