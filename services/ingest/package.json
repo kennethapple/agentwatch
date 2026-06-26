@@ -2,7 +2,6 @@
   "name": "@agentwatch/ingest",
   "version": "0.1.0",
   "description": "Cloud Functions webhook ingest handlers",
-  "type": "module",
   "main": "src/index.js",
   "scripts": {
     "test": "node --test src/**/*.test.js",

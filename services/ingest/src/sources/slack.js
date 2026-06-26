@@ -1,37 +1,23 @@
-import { validateSlackSignature } from '../lib/validate.js'
-import { normalize } from '../lib/normalize.js'
-import { publish } from '../lib/pubsub.js'
-import { logEvent } from '../lib/firestore.js'
+const { validateSlackSignature } = require('../lib/validate.js')
+const { normalize } = require('../lib/normalize.js')
+const { publish } = require('../lib/pubsub.js')
+const { logEvent } = require('../lib/firestore.js')
 
-/**
- * Cloud Function: Slack webhook handler.
- *
- * Handles Slack Events API callbacks. Slack sends a URL verification
- * challenge on first setup, then real events thereafter.
- *
- * Supported event types:
- *   - message (new message in a channel)
- *   - app_mention (bot mentioned)
- */
-export async function slackHandler(req, res) {
-  // Slack URL verification challenge (one-time, on app setup)
+async function slackHandler(req, res) {
   if (req.body?.type === 'url_verification') {
     return res.status(200).json({ challenge: req.body.challenge })
   }
 
-  // Validate HMAC signature on all other requests
   if (!validateSlackSignature(req, process.env.SLACK_SIGNING_SECRET)) {
     console.warn('Slack: invalid request signature')
     return res.status(401).send('Unauthorized')
   }
 
   const { event, team_id: teamId } = req.body ?? {}
-
   if (!event?.type) {
     return res.status(400).send('Bad request: missing event.type')
   }
 
-  // Skip bot messages and message edits to avoid loops
   if (event.bot_id || event.subtype === 'message_changed') {
     return res.status(200).send('ok')
   }
@@ -52,11 +38,8 @@ export async function slackHandler(req, res) {
     rawPayload: req.body,
   })
 
-  await Promise.all([
-    publish(agentEvent),
-    logEvent(agentEvent),
-  ])
-
-  // Slack requires a 200 within 3 seconds
+  await Promise.all([publish(agentEvent), logEvent(agentEvent)])
   res.status(200).send('ok')
 }
+
+module.exports = { slackHandler }
