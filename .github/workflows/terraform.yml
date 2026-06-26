@@ -76,6 +76,7 @@ jobs:
           TF_VAR_slack_signing_secret: ${{ secrets.SLACK_SIGNING_SECRET }}
           TF_VAR_gmail_webhook_token: ${{ secrets.GMAIL_WEBHOOK_TOKEN }}
         run: |
+          # WIF + deploy SA created by bootstrap.sh
           terraform import -lock=false \
             google_iam_workload_identity_pool.github \
             "projects/boreal-phoenix-405421/locations/global/workloadIdentityPools/agentwatch-gh-pool" \
@@ -89,6 +90,28 @@ jobs:
           terraform import -lock=false \
             google_service_account.deploy_sa \
             "projects/boreal-phoenix-405421/serviceAccounts/agentwatch-deploy-sa@boreal-phoenix-405421.iam.gserviceaccount.com" \
+            || true
+
+          # Firestore indexes created by previous partial applies
+          terraform import -lock=false \
+            google_firestore_index.runs_by_event \
+            "projects/boreal-phoenix-405421/databases/(default)/collectionGroups/runs/indexes/CICAgOjXh4EK" \
+            || true
+
+          terraform import -lock=false \
+            google_firestore_index.events_by_source \
+            "projects/boreal-phoenix-405421/databases/(default)/collectionGroups/events/indexes/CICAgJiUpoMJ" \
+            || true
+
+          # Cloud Functions created by previous partial applies
+          terraform import -lock=false \
+            google_cloudfunctions2_function.ingest_gmail \
+            "projects/boreal-phoenix-405421/locations/us-central1/functions/agentwatch-ingest-gmail" \
+            || true
+
+          terraform import -lock=false \
+            google_cloudfunctions2_function.ingest_slack \
+            "projects/boreal-phoenix-405421/locations/us-central1/functions/agentwatch-ingest-slack" \
             || true
 
       - name: Terraform plan
