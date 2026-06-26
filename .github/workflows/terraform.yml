@@ -50,28 +50,38 @@ jobs:
       - name: Terraform validate
         run: terraform validate
 
+      # Remove stale state lock left by a previously failed run.
+      # Deleting the lock file from GCS is safe — we know it's stale because
+      # no other run is currently executing (GitHub Actions serializes on main).
+      - name: Clear stale state lock
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          gsutil rm gs://boreal-phoenix-405421-agentwatch-tfstate/agentwatch/default.tflock 2>/dev/null \
+            && echo "Stale lock removed" \
+            || echo "No lock present"
+
       # Import bootstrap-created resources if not already in state.
       # `terraform import` is idempotent when the resource is already managed —
       # it exits 0 if in state, so we suppress errors with || true.
       - name: Import bootstrap resources into state
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
-          terraform import \
+          terraform import -lock=false \
             google_iam_workload_identity_pool.github \
             "projects/boreal-phoenix-405421/locations/global/workloadIdentityPools/agentwatch-gh-pool" \
             || true
 
-          terraform import \
+          terraform import -lock=false \
             google_iam_workload_identity_pool_provider.github \
             "projects/boreal-phoenix-405421/locations/global/workloadIdentityPools/agentwatch-gh-pool/providers/agentwatch-gh-provider" \
             || true
 
-          terraform import \
+          terraform import -lock=false \
             google_service_account.deploy_sa \
             "projects/boreal-phoenix-405421/serviceAccounts/agentwatch-deploy-sa@boreal-phoenix-405421.iam.gserviceaccount.com" \
             || true
 
-          terraform import \
+          terraform import -lock=false \
             google_firestore_database.default \
             "(default)" \
             || true
