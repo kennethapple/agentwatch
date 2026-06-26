@@ -63,10 +63,8 @@ resource "google_cloudfunctions2_function" "ingest_gmail" {
   depends_on = [
     google_project_service.apis,
     google_storage_bucket_object.ingest_source,
-  ]
-}
-
-resource "google_cloudfunctions2_function_iam_member" "ingest_gmail_public" {
+    google_cloudfunctions2_function.ingest_slack,
+  ] {
   project        = var.project_id
   location       = var.region
   cloud_function = google_cloudfunctions2_function.ingest_gmail.name
