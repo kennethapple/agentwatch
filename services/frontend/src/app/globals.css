@@ -144,3 +144,4 @@ body { font-family: var(--font); background: var(--color-bg-tertiary); color: va
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--color-border-md); border-radius: 2px; }
+
