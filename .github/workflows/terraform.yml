@@ -50,6 +50,32 @@ jobs:
       - name: Terraform validate
         run: terraform validate
 
+      # Import bootstrap-created resources if not already in state.
+      # `terraform import` is idempotent when the resource is already managed —
+      # it exits 0 if in state, so we suppress errors with || true.
+      - name: Import bootstrap resources into state
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          terraform import \
+            google_iam_workload_identity_pool.github \
+            "projects/boreal-phoenix-405421/locations/global/workloadIdentityPools/agentwatch-gh-pool" \
+            || true
+
+          terraform import \
+            google_iam_workload_identity_pool_provider.github \
+            "projects/boreal-phoenix-405421/locations/global/workloadIdentityPools/agentwatch-gh-pool/providers/agentwatch-gh-provider" \
+            || true
+
+          terraform import \
+            google_service_account.deploy_sa \
+            "projects/boreal-phoenix-405421/serviceAccounts/agentwatch-deploy-sa@boreal-phoenix-405421.iam.gserviceaccount.com" \
+            || true
+
+          terraform import \
+            google_firestore_database.default \
+            "(default)" \
+            || true
+
       - name: Terraform plan
         if: github.event_name == 'pull_request'
         id: plan

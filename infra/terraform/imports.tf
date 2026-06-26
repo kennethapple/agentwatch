@@ -1,24 +1,12 @@
-# imports.tf — brings resources created by bootstrap.sh into Terraform state.
-# Native import blocks (Terraform 1.5+) are idempotent — once a resource is
-# in state these blocks are silently ignored on subsequent runs.
-
-import {
-  id = "projects/boreal-phoenix-405421/locations/global/workloadIdentityPools/agentwatch-gh-pool"
-  to = google_iam_workload_identity_pool.github
-}
-
-import {
-  id = "projects/boreal-phoenix-405421/locations/global/workloadIdentityPools/agentwatch-gh-pool/providers/agentwatch-gh-provider"
-  to = google_iam_workload_identity_pool_provider.github
-}
-
-import {
-  id = "projects/boreal-phoenix-405421/serviceAccounts/agentwatch-deploy-sa@boreal-phoenix-405421.iam.gserviceaccount.com"
-  to = google_service_account.deploy_sa
-}
-
-# Firestore database ID format: just the database name, not the full path
-import {
-  id = "(default)"
-  to = google_firestore_database.default
-}
+# imports.tf — documents resources that were created by bootstrap.sh
+# and imported into Terraform state via the terraform.yml CI workflow.
+#
+# The actual imports are handled by `terraform import` commands in
+# .github/workflows/terraform.yml before each apply, using || true
+# so they are idempotent (no-op if already in state).
+#
+# Resources managed this way:
+#   - google_iam_workload_identity_pool.github
+#   - google_iam_workload_identity_pool_provider.github
+#   - google_service_account.deploy_sa
+#   - google_firestore_database.default
