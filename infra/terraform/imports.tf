@@ -1,6 +1,6 @@
 # imports.tf — brings resources created by bootstrap.sh into Terraform state.
-# These blocks are safe to leave in permanently; once a resource is in state
-# Terraform ignores the import block on subsequent runs.
+# Native import blocks (Terraform 1.5+) are idempotent — once a resource is
+# in state these blocks are silently ignored on subsequent runs.
 
 import {
   id = "projects/boreal-phoenix-405421/locations/global/workloadIdentityPools/agentwatch-gh-pool"
@@ -17,7 +17,8 @@ import {
   to = google_service_account.deploy_sa
 }
 
+# Firestore database ID format: just the database name, not the full path
 import {
-  id = "projects/boreal-phoenix-405421/databases/(default)"
+  id = "(default)"
   to = google_firestore_database.default
 }
