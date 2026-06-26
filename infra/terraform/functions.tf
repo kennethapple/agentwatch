@@ -29,7 +29,7 @@ resource "google_cloudfunctions2_function" "ingest_slack" {
   project  = var.project_id
 
   build_config {
-    runtime     = "nodejs20"
+    runtime     = "nodejs22"
     entry_point = "slackHandler"
     # Cloud Functions v2 runs npm install during build.
     # node_modules must NOT be in the zip.
@@ -88,7 +88,7 @@ resource "google_cloudfunctions2_function" "ingest_gmail" {
   project  = var.project_id
 
   build_config {
-    runtime     = "nodejs20"
+    runtime     = "nodejs22"
     entry_point = "gmailHandler"
     source {
       storage_source {
