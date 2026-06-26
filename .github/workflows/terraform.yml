@@ -5,19 +5,18 @@ on:
     branches: [main]
     paths:
       - 'infra/terraform/**'
-      - 'services/ingest/**'
   push:
     branches: [main]
     paths:
       - 'infra/terraform/**'
-      - 'services/ingest/**'
 
 env:
   TF_VERSION: '1.9'
   GCP_REGION: ${{ vars.GCP_REGION || 'us-central1' }}
 
-# Serialize terraform runs — never apply concurrently with another
-# terraform run or a deploy (both touch GCP function resources).
+# Never run two terraform operations concurrently.
+# cancel-in-progress: false — never kill a running apply mid-flight,
+# which would leave state partially written. Queue instead.
 concurrency:
   group: terraform-${{ github.ref }}
   cancel-in-progress: false
@@ -47,31 +46,17 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      - name: Terraform init
+      - name: Init
         run: terraform init
 
-      - name: Terraform fmt check
+      - name: Format check
         run: terraform fmt -check -recursive
 
-      - name: Terraform validate
+      - name: Validate
         run: terraform validate
 
-      # Clear any stale state lock before applying.
-      # Locks are left behind when a run is cancelled or times out mid-apply.
-      # Safe to remove here because GitHub Actions serializes pushes to main,
-      # so no concurrent apply can legitimately hold the lock at this point.
-      - name: Clear stale state lock
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: |
-          LOCKS=$(gsutil ls "gs://boreal-phoenix-405421-agentwatch-tfstate/agentwatch/*.tflock" 2>/dev/null || true)
-          if [ -n "$LOCKS" ]; then
-            echo "⚠ Stale lock found — removing: $LOCKS"
-            echo "$LOCKS" | xargs gsutil rm
-          else
-            echo "No stale lock present"
-          fi
-
-      - name: Terraform plan
+      # ── PR: plan and post as comment ────────────────────────────────────────
+      - name: Plan
         if: github.event_name == 'pull_request'
         id: plan
         run: |
@@ -104,8 +89,23 @@ jobs:
         if: github.event_name == 'pull_request' && steps.plan.outputs.exitcode != '0'
         run: exit 1
 
-      - name: Terraform apply
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      # ── Push to main: clear stale lock then apply ───────────────────────────
+      # Stale locks are left when a run is cancelled or times out mid-apply.
+      # Safe to remove because the concurrency group above ensures no other
+      # terraform run is legitimately holding the lock right now.
+      - name: Clear stale state lock
+        if: github.event_name == 'push'
+        run: |
+          LOCKS=$(gsutil ls "gs://boreal-phoenix-405421-agentwatch-tfstate/agentwatch/*.tflock" 2>/dev/null || true)
+          if [ -n "$LOCKS" ]; then
+            echo "⚠ Stale lock found — removing: $LOCKS"
+            echo "$LOCKS" | xargs gsutil rm
+          else
+            echo "No stale lock present"
+          fi
+
+      - name: Apply
+        if: github.event_name == 'push'
         run: |
           terraform apply -auto-approve \
             -var="anthropic_api_key=${{ secrets.ANTHROPIC_API_KEY }}" \

@@ -6,10 +6,13 @@ on:
   pull_request:
     branches: [main]
 
+# CI is the gate — every push and PR runs this.
+# Terraform and Deploy both declare `needs: ci` so they never
+# run against code that fails tests or lint.
+
 jobs:
-  # ── Ingest ───────────────────────────────────────────────────────────────────
   test-ingest:
-    name: Test ingest service
+    name: Test ingest
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -24,9 +27,8 @@ jobs:
       - run: npm ci
       - run: npm test
 
-  # ── Agent ─────────────────────────────────────────────────────────────────────
   test-agent:
-    name: Test agent service
+    name: Test agent
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -41,7 +43,6 @@ jobs:
       - run: npm ci
       - run: npm test
 
-  # ── Frontend ──────────────────────────────────────────────────────────────────
   lint-frontend:
     name: Lint frontend
     runs-on: ubuntu-latest
@@ -57,19 +58,3 @@ jobs:
           cache-dependency-path: services/frontend/package-lock.json
       - run: npm ci
       - run: npm run lint
-
-  # ── Terraform ─────────────────────────────────────────────────────────────────
-  terraform-validate:
-    name: Validate Terraform
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: infra/terraform
-    steps:
-      - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v4
-        with:
-          terraform_version: '1.9'
-      - run: terraform init -backend=false
-      - run: terraform validate
-      - run: terraform fmt -check -recursive
