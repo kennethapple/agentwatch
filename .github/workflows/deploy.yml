@@ -4,6 +4,12 @@ on:
   push:
     branches: [main]
 
+# Prevent concurrent deploys — if a new push comes in while deploying,
+# cancel the in-progress run and start fresh with the latest code.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   GCP_REGION: ${{ vars.GCP_REGION || 'us-central1' }}
 
@@ -24,7 +30,6 @@ jobs:
           filters: |
             ingest:
               - 'services/ingest/**'
-              - 'infra/terraform/functions.tf'
             agent:
               - 'services/agent/**'
             frontend:
@@ -65,7 +70,7 @@ jobs:
             --set-secrets SLACK_SIGNING_SECRET=slack-signing-secret:latest \
             --project ${{ secrets.GCP_PROJECT_ID }}
 
-      # Deploy Gmail after Slack to avoid concurrent-update 409
+      # Deploy Gmail after Slack completes
       - name: Deploy Gmail ingest function
         run: |
           gcloud functions deploy agentwatch-ingest-gmail \

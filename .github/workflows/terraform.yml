@@ -16,6 +16,12 @@ env:
   TF_VERSION: '1.9'
   GCP_REGION: ${{ vars.GCP_REGION || 'us-central1' }}
 
+# Serialize terraform runs — never apply concurrently with another
+# terraform run or a deploy (both touch GCP function resources).
+concurrency:
+  group: terraform-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   terraform:
     name: ${{ github.event_name == 'pull_request' && 'Plan' || 'Apply' }}
