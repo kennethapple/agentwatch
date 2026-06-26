@@ -1,192 +1,137 @@
 # Deployment guide
 
-End-to-end steps to go from zero to a live AgentWatch on GCP.
-Works for the first developer setting up the project, and for subsequent
-developers joining an already-running deployment.
+## Current state
+
+**Infrastructure is live.** The initial deployment is complete. Most developers
+joining this project do not need to follow the first-time setup steps.
+
+| Component | Status | URL |
+|---|---|---|
+| Agent (Cloud Run) | ✅ Live | `terraform output agent_url` |
+| Frontend (Cloud Run) | ✅ Live | `terraform output frontend_url` |
+| Gmail ingest (Cloud Functions) | ✅ Live | Needs `setup-gmail-watch.sh` |
+| Slack ingest (Cloud Functions) | ✅ Live | Needs Slack app URL registration |
+| Firestore | ✅ Live | `(default)` database, us-central1 |
+| Pub/Sub | ✅ Live | `agentwatch-events` topic |
+| Secret Manager | ✅ Live | 3 secrets provisioned |
+| Artifact Registry | ✅ Live | `us-central1-docker.pkg.dev/boreal-phoenix-405421/agentwatch` |
 
 ---
 
-## Are you the first developer, or joining an existing deployment?
-
-**First developer** — follow all steps in order.
-
-**Joining an existing deployment** — skip to [Joining an existing deployment](#joining-an-existing-deployment).
-
----
-
-## Prerequisites
-
-- GCP project access (ask the project owner for `boreal-phoenix-405421`)
-- `gcloud` CLI: https://cloud.google.com/sdk/docs/install
-- Terraform ≥ 1.7: https://developer.hashicorp.com/terraform/install
-- Node.js 20+
-- Access to the GitHub repo: `kennethapple/agentwatch`
-
----
-
-## Step 1 — Clone and configure
+## Joining an existing deployment
 
 ```bash
 git clone https://github.com/kennethapple/agentwatch
 cd agentwatch
 
+# 1. Configure local environment
 cp infra/config.env infra/config.local.env
+# Edit: set GCP_PROJECT_ID=boreal-phoenix-405421 and GITHUB_REPO=kennethapple/agentwatch
+
+# 2. Authenticate to GCP
+gcloud auth login
+gcloud config set project boreal-phoenix-405421
+
+# 3. Connect Gmail (if not already connected, or to renew the 7-day watch)
+GMAIL_ADDRESS=you@yourcompany.com ./infra/scripts/setup-gmail-watch.sh
+
+# 4. Get the Slack ingest URL
+./infra/scripts/setup-slack-app.sh
 ```
 
-Edit `infra/config.local.env`:
-
-```bash
-GCP_PROJECT_ID="boreal-phoenix-405421"
-GITHUB_REPO="kennethapple/agentwatch"
-# GCP_REGION defaults to us-central1 — only change if needed
-```
-
-`config.local.env` is gitignored — it never gets committed.
+That's it. Push to `main` to deploy changes.
 
 ---
 
-## Step 2 — Bootstrap (first developer only, run once per project)
-
-Creates the GCS Terraform state bucket and Workload Identity Federation.
+## Making changes
 
 ```bash
-gcloud auth login
-chmod +x infra/bootstrap.sh
+# Changes to any service auto-deploy on push to main
+git push origin main
+
+# Trigger a terraform apply
+./infra/scripts/trigger-terraform.sh
+```
+
+---
+
+## First-time setup (reference only — already completed)
+
+These steps were completed during initial project setup. Documented here
+for reference if the project ever needs to be rebuilt from scratch.
+
+### Prerequisites
+
+- GCP project Owner access on `boreal-phoenix-405421`
+- `gcloud` CLI authenticated
+- Terraform ≥ 1.9
+- Node.js 20+
+
+### Step 1 — Clone and configure
+
+```bash
+git clone https://github.com/kennethapple/agentwatch
+cd agentwatch
+cp infra/config.env infra/config.local.env
+# Set GCP_PROJECT_ID and GITHUB_REPO in config.local.env
+```
+
+### Step 2 — Bootstrap
+
+```bash
 ./infra/bootstrap.sh
 ```
 
-The script is idempotent — safe to re-run. It will:
-- Confirm with you before making any changes
-- Warn you if your active gcloud project differs from config
-- Print the 6 GitHub Actions secrets you need in Step 3
+Creates: GCS tfstate bucket, deploy service account, Workload Identity
+Federation pool + provider. Prints 6 values needed for GitHub secrets.
 
----
+### Step 3 — GitHub Actions secrets
 
-## Step 3 — GitHub Actions secrets (first developer only)
+Add at https://github.com/kennethapple/agentwatch/settings/secrets/actions:
 
-Go to **https://github.com/kennethapple/agentwatch/settings/secrets/actions**
-and add the 6 secrets printed by bootstrap.sh:
-
-| Secret | How to get it |
+| Secret | Source |
 |---|---|
-| `GCP_PROJECT_ID` | Printed by bootstrap.sh |
-| `GCP_WORKLOAD_IDENTITY_PROVIDER` | Printed by bootstrap.sh |
-| `GCP_DEPLOY_SA` | Printed by bootstrap.sh |
+| `GCP_PROJECT_ID` | `boreal-phoenix-405421` |
+| `GCP_WORKLOAD_IDENTITY_PROVIDER` | printed by bootstrap.sh |
+| `GCP_DEPLOY_SA` | printed by bootstrap.sh |
 | `ANTHROPIC_API_KEY` | console.anthropic.com |
-| `SLACK_SIGNING_SECRET` | Slack app → Basic Information → Signing Secret |
-| `GMAIL_WEBHOOK_TOKEN` | Printed by bootstrap.sh — also save for Step 4 |
+| `SLACK_SIGNING_SECRET` | Slack app → Basic Information |
+| `GMAIL_WEBHOOK_TOKEN` | printed by bootstrap.sh |
 
----
-
-## Step 4 — Terraform apply (first developer only)
+### Step 4 — Terraform
 
 ```bash
 cd infra/terraform
 cp terraform.tfvars.example terraform.tfvars
+# Fill in: anthropic_api_key, slack_signing_secret, gmail_webhook_token
+terraform init
+terraform apply
 ```
 
-Edit `terraform.tfvars` — fill in the three sensitive values:
-
-```hcl
-anthropic_api_key    = "sk-ant-..."        # from console.anthropic.com
-slack_signing_secret = "your-secret"       # from Slack app settings
-gmail_webhook_token  = "paste-from-step-2" # printed by bootstrap.sh
-```
-
-```bash
-terraform init    # downloads providers, connects to GCS backend
-terraform plan    # review ~35 resources to be created
-terraform apply   # takes ~5 minutes
-```
-
-Note the outputs — you'll need them for Steps 5 and 6:
-```bash
-terraform output
-```
-
----
-
-## Step 5 — Trigger first image deploy
-
-Terraform deploys Cloud Run with a placeholder image. Push real images by
-triggering the deploy workflow:
+### Step 5 — Initial image deploy
 
 ```bash
 git commit --allow-empty -m "ci: trigger initial deploy"
 git push origin main
 ```
 
-Watch **Actions** tab — takes ~4 minutes. After it completes, open:
-```bash
-terraform output frontend_url
-```
-
----
-
-## Step 6 — Connect Gmail
+### Step 6 — Connect event sources
 
 ```bash
-GMAIL_ADDRESS=you@yourcompany.com ./infra/scripts/setup-gmail-watch.sh
-```
-
-The Gmail watch expires every 7 days. Re-run this script weekly to renew,
-or set up a Cloud Scheduler job (see Useful commands below).
-
----
-
-## Step 7 — Connect Slack
-
-```bash
-./infra/scripts/setup-slack-app.sh
-```
-
-Paste the printed URL into your Slack app's **Event Subscriptions** page.
-Subscribe to: `message.channels`, `message.groups`, `app_mention`.
-
----
-
-## Joining an existing deployment
-
-A second developer doesn't need to run bootstrap or touch Terraform.
-
-```bash
-git clone https://github.com/kennethapple/agentwatch
-cd agentwatch
-
-# Configure local environment
-cp infra/config.env infra/config.local.env
-# Edit: set GCP_PROJECT_ID=boreal-phoenix-405421 and GITHUB_REPO=kennethapple/agentwatch
-
-# Authenticate to GCP
-gcloud auth login
-gcloud config set project boreal-phoenix-405421
-
-# Run setup scripts (they read config.local.env automatically)
 GMAIL_ADDRESS=you@yourcompany.com ./infra/scripts/setup-gmail-watch.sh
 ./infra/scripts/setup-slack-app.sh
 ```
 
-To make changes: open a PR. The CI workflow runs tests and posts a
-Terraform plan as a PR comment. Merge to main to auto-deploy.
-
 ---
 
-## CI/CD overview
+## Operations
 
-| Trigger | Workflow | What runs |
-|---|---|---|
-| PR to `main` | `ci.yml` | Tests, lint, terraform validate |
-| PR to `main` (infra changes) | `terraform.yml` | `terraform plan` posted as PR comment |
-| Push to `main` (infra changes) | `terraform.yml` | `terraform apply` |
-| Push to `main` (agent changes) | `deploy.yml` | Build image → Cloud Run |
-| Push to `main` (frontend changes) | `deploy.yml` | Build image → Cloud Run |
-| Push to `main` (ingest changes) | `deploy.yml` | Re-deploy Cloud Functions |
-
----
-
-## Useful commands
+### Useful commands
 
 ```bash
+# Get live service URLs
+cd infra/terraform && terraform output
+
 # Tail agent logs
 gcloud run services logs tail agentwatch-agent \
   --region us-central1 --project boreal-phoenix-405421
@@ -195,25 +140,36 @@ gcloud run services logs tail agentwatch-agent \
 gcloud functions logs read agentwatch-ingest-gmail \
   --region us-central1 --project boreal-phoenix-405421 --limit 50
 
-# Manually simulate an event (no real webhook needed)
+# Simulate an event locally
 cd services/ingest
-AGENT_URL=$(gcloud run services describe agentwatch-agent \
+AGENT_URL=https://$(gcloud run services describe agentwatch-agent \
   --region us-central1 --project boreal-phoenix-405421 \
   --format='value(status.url)') \
 node scripts/simulate.js --source gmail --fixture fixtures/email-approval.json
 
-# Renew Gmail watch manually
+# Renew Gmail watch (expires every 7 days)
 GMAIL_ADDRESS=you@yourcompany.com ./infra/scripts/setup-gmail-watch.sh
 
-# Cloud Scheduler job to auto-renew Gmail watch weekly
+# Manually clear a stale Terraform state lock
+gsutil ls gs://boreal-phoenix-405421-agentwatch-tfstate/agentwatch/
+gsutil rm gs://boreal-phoenix-405421-agentwatch-tfstate/agentwatch/default.tflock
+```
+
+### Gmail watch renewal
+
+The Gmail push notification watch expires every 7 days. Options:
+
+1. **Manual:** `GMAIL_ADDRESS=you@example.com ./infra/scripts/setup-gmail-watch.sh`
+2. **Cloud Scheduler (recommended):**
+```bash
 gcloud scheduler jobs create http agentwatch-gmail-watch-renewal \
   --location us-central1 \
   --project boreal-phoenix-405421 \
   --schedule "0 9 * * MON" \
   --uri "$(gcloud functions describe agentwatch-ingest-gmail \
-    --region us-central1 --project boreal-phoenix-405421 \
-    --format='value(serviceConfig.uri)')/renew" \
-  --message-body '{"renew": true}'
+      --region us-central1 --project boreal-phoenix-405421 \
+      --format='value(serviceConfig.uri)')/renew" \
+  --message-body '{"renew":true}'
 ```
 
 ---
@@ -221,33 +177,35 @@ gcloud scheduler jobs create http agentwatch-gmail-watch-renewal \
 ## Troubleshooting
 
 **`config.local.env not found`**
-Run `cp infra/config.env infra/config.local.env` and fill in the values.
+```bash
+cp infra/config.env infra/config.local.env
+# edit with your GCP_PROJECT_ID and GITHUB_REPO
+```
 
-**`terraform init` fails with bucket not found**
-Run `./infra/bootstrap.sh` first — it creates the GCS bucket.
+**GitHub Actions auth fails**
+- `GCP_WORKLOAD_IDENTITY_PROVIDER` must start with `projects/` (full resource path)
+- `GCP_DEPLOY_SA` must be a full email address ending in `.iam.gserviceaccount.com`
 
-**GitHub Actions: `Error: google-github-actions/auth failed`**
-- Verify `GCP_WORKLOAD_IDENTITY_PROVIDER` starts with `projects/` (full resource path)
-- Verify `GCP_DEPLOY_SA` is the full email address
-- Check the WIF attribute condition matches your fork's repo name
+**Terraform state lock error**
+```bash
+gsutil rm gs://boreal-phoenix-405421-agentwatch-tfstate/agentwatch/default.tflock
+./infra/scripts/trigger-terraform.sh
+```
 
-**Agent not receiving Pub/Sub events**
+**Cloud Functions health check failing**
+- Check that `src/index.js` uses `require()` not `import`
+- Check that GCP clients (Firestore, Pub/Sub) are lazy-initialized (not at module load time)
+- Check that `googleapis` is in `dependencies` (not `@googleapis/gmail`)
+
+**Agent not receiving events**
 ```bash
 gcloud pubsub subscriptions describe agentwatch-agent-sub \
   --project boreal-phoenix-405421
-# Check pushConfig.pushEndpoint matches the agent Cloud Run URL
+# Verify pushConfig.pushEndpoint matches the agent Cloud Run URL
 ```
 
-**Cloud Functions returning 401**
-The Gmail push token in Secret Manager must match what was registered
-with `gmail.users.watch`. Re-run `setup-gmail-watch.sh` to re-sync.
-
-**Terraform apply fails with WIF resources already existing**
-Bootstrap created them outside Terraform state. Import them:
+**gcloud Python version error**
 ```bash
-terraform import google_iam_workload_identity_pool.github \
-  projects/boreal-phoenix-405421/locations/global/workloadIdentityPools/agentwatch-gh-pool
-
-terraform import google_iam_workload_identity_pool_provider.github \
-  projects/boreal-phoenix-405421/locations/global/workloadIdentityPools/agentwatch-gh-pool/providers/agentwatch-gh-provider
+export CLOUDSDK_PYTHON=$(which python3.12)
+# Add to ~/.zshrc to make permanent
 ```
